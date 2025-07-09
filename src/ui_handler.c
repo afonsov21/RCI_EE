@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <unistd.h> // Para usleep
 
+// Implementação da função print_help()
 void print_help()
 {
     printf("Comandos disponíveis:\n");
@@ -37,7 +38,7 @@ void handle_user_command(char *command_line)
     {
         if (strcmp(cmd, "help") == 0)
         {
-            print_help();
+            print_help(); // Chamada para a função agora implementada
         }
         else if (strcmp(cmd, "join") == 0 || strcmp(cmd, "j") == 0)
         {
@@ -167,12 +168,13 @@ void handle_user_command(char *command_line)
                         printf("  ID da Rede: %03d\n", node->current_net_id);
                     }
                     Neighbor *external = get_external_neighbor(node);
-                    printf("  Vizinho Externo: %s:%d\n", external ? external->ip : "Nenhum", external ? external->tcp_port : 0); // Correção aqui
+                    printf("  Vizinho Externo: %s:%d\n", external ? external->ip : "Nenhum", external ? external->tcp_port : 0);
                     printf("  Vizinhos Internos:\n");
                     int internal_count = 0;
                     for (int i = 0; i < MAX_NEIGHBORS; ++i)
                     {
-                        if (node->neighbors[i].is_valid && node->neighbors[i].type == NEIGHBOR_TYPE_INTERNAL)
+                        if (node->neighbors[i].is_valid &&
+                            (node->neighbors[i].type == NEIGHBOR_TYPE_INTERNAL || node->neighbors[i].type == NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL))
                         {
                             printf("    - %s:%d (SD: %d)\n", node->neighbors[i].ip, node->neighbors[i].tcp_port, node->neighbors[i].socket_sd);
                             internal_count++;
@@ -217,16 +219,32 @@ void handle_user_command(char *command_line)
             if (node->current_net_id != -1)
             {
                 printf("Comando: leave (rede: %03d)\n", node->current_net_id);
+
+                node->is_leaving = 1;                       // Marcar que o nó está a sair
+                node->internal_neighbors_to_disconnect = 0; // Resetar contador
+
+                // Enviar mensagens LEAVE para todos os vizinhos internos
                 for (int i = 0; i < MAX_NEIGHBORS; i++)
                 {
-                    if (node->neighbors[i].is_valid && node->neighbors[i].type == NEIGHBOR_TYPE_INTERNAL)
+                    if (node->neighbors[i].is_valid &&
+                        (node->neighbors[i].type == NEIGHBOR_TYPE_INTERNAL || node->neighbors[i].type == NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL))
                     {
                         send_leave_message(node->neighbors[i].socket_sd, node);
+                        node->internal_neighbors_to_disconnect++; // Contar quantos vizinhos internos precisam desconectar
                     }
                 }
+
                 send_unreg_message(node, node->current_net_id);
                 node->current_net_id = -1;
-                usleep(50000); // 50ms
+
+                if (node->internal_neighbors_to_disconnect == 0)
+                {
+                    printf("Nó não tem vizinhos internos. Saída imediata da rede.\n");
+                }
+                else
+                {
+                    printf("Nó iniciando processo de saída. Aguardando desconexão de %d vizinhos internos.\n", node->internal_neighbors_to_disconnect);
+                }
             }
             else
             {

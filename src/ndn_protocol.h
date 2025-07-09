@@ -3,6 +3,11 @@
 
 #include "ndn_node.h" // Para NDNNode e suas estruturas de dados
 
+// Helper functions for initialization
+void init_pending_interests(NDNNode *node);
+void init_local_objects(NDNNode *node);
+void init_cache(NDNNode *node);
+
 // Funções para gerir objetos locais
 void create_local_object(NDNNode *node, const char *name);
 void delete_local_object(NDNNode *node, const char *name);
@@ -24,9 +29,5 @@ void send_noobject_message(int target_sd, unsigned char id, const char *name);
 // Funções de depuração e visualização para NDN
 void show_local_objects(NDNNode *node);
 void show_interest_table(NDNNode *node);
-
-void init_pending_interests(NDNNode *node);
-void init_local_objects(NDNNode *node);
-void init_cache(NDNNode *node);
 
 #endif // NDN_PROTOCOL_H

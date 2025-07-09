@@ -18,7 +18,7 @@ void process_incoming_connection(NDNNode *node, int new_socket_sd, const char *c
 void send_entry_message(int target_sd, NDNNode *node);
 void send_leave_message(int target_sd, NDNNode *node);
 
-// Nova função para processar dados brutos recebidos e extrair mensagens completas
+// Função para processar dados brutos recebidos e extrair mensagens completas
 void handle_tcp_data_received(NDNNode *node, int client_sd, char *data, ssize_t len);
 
 // Função interna para processar uma mensagem TCP completa (não chamada diretamente do loop)

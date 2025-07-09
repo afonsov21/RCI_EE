@@ -7,12 +7,10 @@
 #include <unistd.h>
 #include <time.h> // Para srand, rand
 
-#define MAX_NODES_PER_NET 10
-
 // Para a lógica de escolher um nó aleatoriamente
 static int nodes_count = 0;
-static char nodes_ip_list[MAX_NODES_PER_NET][MAX_IP_LEN];
-static int nodes_port_list[MAX_NODES_PER_NET];
+static char nodes_ip_list[MAX_NODES_PER_NET][MAX_IP_LEN]; // MAX_NODES_PER_NET deve ser definido ou usar um tamanho fixo
+static int nodes_port_list[MAX_NODES_PER_NET];            // MAX_NODES_PER_NET deve ser definido ou usar um tamanho fixo
 
 void send_reg_message(NDNNode *node, int net_id)
 {
@@ -68,13 +66,10 @@ void process_udp_registration_message(NDNNode *node, const char *message)
         if (strcmp(cmd, "OKREG") == 0)
         {
             printf("Servidor de registo confirmou o registo para rede %03d.\n", node->current_net_id);
-            // Agora que está registado, se foi via 'join', o nó está pronto.
-            // Se foi via 'direct join 0.0.0.0 0', também está pronto.
         }
         else if (strcmp(cmd, "OKUNREG") == 0)
         {
             printf("Servidor de registo confirmou a remoção do registo para rede %03d.\n", net_id);
-            // node->current_net_id = -1; // Isso já é feito no ui_handler.c após enviar UNREG
         }
         else if (strcmp(cmd, "NODESLIST") == 0)
         {
@@ -109,13 +104,12 @@ void process_udp_registration_message(NDNNode *node, const char *message)
             if (nodes_count == 0)
             {
                 printf("  Lista de nós na rede %03d está vazia. Este nó é o primeiro da rede.\n", net_id);
-                // Se a lista estiver vazia, o nó regista-se como o primeiro.
                 send_reg_message(node, net_id);
             }
-            else
+            else // nodes_count > 0
             {
                 printf("  Total de %d outros nós na rede %03d. Escolhendo um para conectar...\n", nodes_count, net_id);
-                // Escolher aleatoriamente um nó da lista para se conectar.
+
                 srand(time(NULL)); // Inicializar o gerador de números aleatórios
                 int random_idx = rand() % nodes_count;
 
@@ -123,18 +117,32 @@ void process_udp_registration_message(NDNNode *node, const char *message)
                 int target_port = nodes_port_list[random_idx];
 
                 printf("  Tentando conectar a %s:%d para se juntar à rede %03d.\n", target_ip, target_port, net_id);
+
+                // Determina se este é o cenário de 2 nós (apenas um outro nó na lista)
+                // O is_two_node_network_scenario é usado aqui para decidir o tipo de vizinho.
+                int is_two_node_network_scenario = (nodes_count == 1);
+
                 int connected_sd = connect_to_node(node, target_ip, target_port);
                 if (connected_sd != -1)
                 {
                     printf("  Conectado ao nó %s:%d. Registrando-se na rede %03d.\n", target_ip, target_port, net_id);
-                    send_reg_message(node, net_id); // Registra-se no servidor após a conexão
+
+                    // Se este é o cenário de 2 nós, classifique o vizinho recém-conectado como EXTERNAL_AND_INTERNAL
+                    if (is_two_node_network_scenario)
+                    {
+                        Neighbor *just_connected_neighbor = find_neighbor_by_sd(node, connected_sd);
+                        if (just_connected_neighbor)
+                        {
+                            just_connected_neighbor->type = NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL;
+                            printf("    Nó conectado %s:%d classificado como EXTERNAL_AND_INTERNAL (cenário 2 nós, iniciador).\n", target_ip, target_port);
+                        }
+                    }
+                    send_reg_message(node, net_id);
                 }
                 else
                 {
                     fprintf(stderr, "  Falha ao conectar ao nó %s:%d. Tentando outro ou falhando o join.\n", target_ip, target_port);
-                    // TODO: Implementar lógica para tentar outro nó ou falhar o join.
-                    // Por enquanto, apenas reporta a falha.
-                    node->current_net_id = -1; // Marcar que o join falhou
+                    node->current_net_id = -1;
                 }
             }
         }

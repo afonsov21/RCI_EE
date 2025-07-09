@@ -19,7 +19,7 @@
  * @param ip IP do vizinho.
  * @param port Porto TCP do vizinho.
  * @param sd Socket descriptor da conexão com o vizinho.
- * @param type Tipo de vizinho (EXTERNAL, INTERNAL, PENDING_INCOMING).
+ * @param type Tipo de vizinho (EXTERNAL, INTERNAL, PENDING_INCOMING, EXTERNAL_AND_INTERNAL).
  * @return Índice do vizinho na lista, ou -1 se o limite foi atingido.
  */
 int add_neighbor(NDNNode *node, const char *ip, int port, int sd, NeighborType type)
@@ -48,7 +48,7 @@ int add_neighbor(NDNNode *node, const char *ip, int port, int sd, NeighborType t
             node->num_active_neighbors++;
             printf("Vizinho adicionado: %s:%d (Tipo: %s, SD: %d). Total: %d\n",
                    ip, port,
-                   (type == NEIGHBOR_TYPE_EXTERNAL ? "Externo" : (type == NEIGHBOR_TYPE_INTERNAL ? "Interno" : "Pendente")),
+                   (type == NEIGHBOR_TYPE_EXTERNAL ? "Externo" : (type == NEIGHBOR_TYPE_INTERNAL ? "Interno" : (type == NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL ? "Ext/Int" : "Pendente"))),
                    sd, node->num_active_neighbors);
             return i; // Retorna o índice do vizinho
         }
@@ -133,7 +133,7 @@ Neighbor *get_external_neighbor(NDNNode *node)
 {
     for (int i = 0; i < MAX_NEIGHBORS; i++)
     {
-        if (node->neighbors[i].is_valid && node->neighbors[i].type == NEIGHBOR_TYPE_EXTERNAL)
+        if (node->neighbors[i].is_valid && (node->neighbors[i].type == NEIGHBOR_TYPE_EXTERNAL || node->neighbors[i].type == NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL))
         {
             return &node->neighbors[i];
         }
@@ -158,8 +158,6 @@ int connect_to_node(NDNNode *node, const char *target_ip, int target_tcp_port)
     if (existing_neighbor && existing_neighbor->is_valid)
     {
         printf("Já conectado a %s:%d. Reutilizando conexão existente (SD: %d).\n", target_ip, target_tcp_port, existing_neighbor->socket_sd);
-        // Se já conectado, não precisa fazer um novo 'connect'.
-        // A lógica de ENTRY/LEAVE cuidará do tipo (EXTERNAL/INTERNAL) se necessário.
         return existing_neighbor->socket_sd;
     }
 
@@ -197,8 +195,7 @@ int connect_to_node(NDNNode *node, const char *target_ip, int target_tcp_port)
     }
 
     printf("Conexão estabelecida com %s:%d (SD: %d).\n", target_ip, target_tcp_port, client_sd);
-    // Adicionar o nó como vizinho EXTERNAL e enviar mensagem de entrada
-    // O porto e IP aqui são os do TARGET, que é o que queremos armazenar.
+    // Adicionar o nó como vizinho EXTERNAL. O tipo será ajustado pelo outro lado.
     int neighbor_idx = add_neighbor(node, target_ip, target_tcp_port, client_sd, NEIGHBOR_TYPE_EXTERNAL);
     if (neighbor_idx != -1)
     {
@@ -225,11 +222,7 @@ void process_incoming_connection(NDNNode *node, int new_socket_sd, const char *c
 {
     printf("Processando nova conexão de entrada de %s:%d (SD: %d).\n", client_ip, client_port, new_socket_sd);
 
-    // Adicionar como vizinho PENDING_INCOMING com IP/porta temporários (do socket de origem).
-    // O IP e porta reais do nó serão obtidos da mensagem ENTRY.
-    // Primeiro, verificar se já temos uma conexão ACEITA (PENDING_INCOMING) para este SD.
-    // ou se já é um vizinho (INTERNAL/EXTERNAL) - isso pode indicar um problema de race condition
-    // ou dupla conexão, onde um lado já se conectou.
+    // Verificar se já temos uma conexão ACEITA (PENDING_INCOMING) para este SD, ou se já é um vizinho.
     Neighbor *existing_sd_neighbor = find_neighbor_by_sd(node, new_socket_sd);
     if (existing_sd_neighbor && existing_sd_neighbor->is_valid)
     {
@@ -238,7 +231,7 @@ void process_incoming_connection(NDNNode *node, int new_socket_sd, const char *c
         return;
     }
 
-    // Adicionar o vizinho com o tipo PENDING_INCOMING. IP/Porta serão atualizados pela ENTRY.
+    // Adicionar o vizinho com o tipo PENDING_INCOMING. IP/Porta serão atualizados pela mensagem ENTRY.
     add_neighbor(node, client_ip, client_port, new_socket_sd, NEIGHBOR_TYPE_PENDING_INCOMING);
 }
 
@@ -355,23 +348,25 @@ void process_complete_tcp_message(NDNNode *node, int client_sd, const char *mess
     printf("Mensagem TCP completa de SD %d: '%s'\n", client_sd, message);
 
     char cmd[20];
+    // Tenta ler o comando (o primeiro token da mensagem)
     if (sscanf(message, "%s", cmd) == 1)
     {
-        // Mensagens de Topologia
+        // Se o comando é uma mensagem de Topologia (ENTRY ou LEAVE)
         if (strcmp(cmd, "ENTRY") == 0 || strcmp(cmd, "LEAVE") == 0)
         {
             char ip_str[MAX_IP_LEN];
             int tcp_port;
+            // Tenta ler IP e Porto da mensagem de topologia
             if (sscanf(message, "%*s %s %d", ip_str, &tcp_port) == 2)
             {
                 if (strcmp(cmd, "ENTRY") == 0)
                 {
-                    printf("  -> Processando ENTRY de %s:%d\n", ip_str, tcp_port);
+                    printf("  -> Processando ENTRY de %s:%d (SD: %d).\n", ip_str, tcp_port, client_sd);
 
                     Neighbor *neighbor_conn = find_neighbor_by_sd(node, client_sd);
                     if (neighbor_conn && neighbor_conn->is_valid)
                     {
-                        // Se já existia (como PENDING_INCOMING), atualiza os dados e o tipo
+                        // Se já existia (como PENDING_INCOMING), atualiza os dados
                         if (neighbor_conn->type == NEIGHBOR_TYPE_PENDING_INCOMING)
                         {
                             printf("    Atualizando vizinho pendente SD %d para %s:%d (de ENTRY).\n", client_sd, ip_str, tcp_port);
@@ -380,25 +375,31 @@ void process_complete_tcp_message(NDNNode *node, int client_sd, const char *mess
                             neighbor_conn->tcp_port = tcp_port;
                         }
 
-                        // Define o tipo final como INTERNAL (ou EXTERNAL se promovido)
-                        neighbor_conn->type = NEIGHBOR_TYPE_INTERNAL;
-
-                        // Adicionalmente, se o nó não tiver vizinho externo, estabelece este como externo.
-                        if (!get_external_neighbor(node))
+                        // Lógica de classificação:
+                        // Se o nó (o que aceita) não tinha vizinho externo E só tem um vizinho ativo (o que acabou de se conectar)
+                        // então é o cenário de dois nós.
+                        if (get_external_neighbor(node) == NULL && node->num_active_neighbors == 1)
                         {
-                            printf("    Nó não tinha vizinho externo. %s:%d (SD: %d) set como EXTERNAL.\n", ip_str, tcp_port, client_sd);
-                            neighbor_conn->type = NEIGHBOR_TYPE_EXTERNAL;
+                            neighbor_conn->type = NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL;
+                            printf("    Nó não tinha vizinho externo. %s:%d (SD: %d) set como EXTERNAL_AND_INTERNAL (cenário 2 nós, aceitador).\n", ip_str, tcp_port, client_sd);
+                        }
+                        else
+                        {
+                            // Em todos os outros casos, é um vizinho interno "normal"
+                            neighbor_conn->type = NEIGHBOR_TYPE_INTERNAL;
+                            printf("    Nó %s:%d (SD: %d) set como INTERNAL (cenário >2 nós ou já tinha externo).\n", ip_str, tcp_port, client_sd);
                         }
                     }
                     else
                     {
-                        // Isso não deveria acontecer se process_incoming_connection sempre adicionar um placeholder.
-                        // Mas, se acontecer, adiciona como vizinho interno
-                        int idx = add_neighbor(node, ip_str, tcp_port, client_sd, NEIGHBOR_TYPE_INTERNAL);
-                        if (idx != -1 && !get_external_neighbor(node))
+                        // Este bloco é para o caso em que o neighbor_conn NÃO é válido (não deveria acontecer se PENDING_INCOMING está a funcionar)
+                        // ou se a conexão foi estabelecida de uma forma que o SD não foi ainda registado.
+                        // Adiciona como vizinho interno
+                        int idx = add_neighbor(node, ip_str, tcp_port, client_sd, NEIGHBOR_TYPE_INTERNAL);       // Adiciona como INTERNAL por padrão
+                        if (idx != -1 && get_external_neighbor(node) == NULL && node->num_active_neighbors == 1) // Se é o único vizinho e não tem externo
                         {
-                            node->neighbors[idx].type = NEIGHBOR_TYPE_EXTERNAL;
-                            printf("    Nó não tinha vizinho externo. %s:%d (SD: %d) set como EXTERNAL.\n", ip_str, tcp_port, client_sd);
+                            node->neighbors[idx].type = NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL; // Promove a EXTERNAL_AND_INTERNAL
+                            printf("    Nó não tinha vizinho externo. %s:%d (SD: %d) set como EXTERNAL_AND_INTERNAL.\n", ip_str, tcp_port, client_sd);
                         }
                     }
                 }
@@ -406,91 +407,116 @@ void process_complete_tcp_message(NDNNode *node, int client_sd, const char *mess
                 {
                     printf("  -> Processando LEAVE de vizinho (SD: %d). Vizinho externo deles: %s:%d\n", client_sd, ip_str, tcp_port);
 
-                    // Remover o vizinho que enviou LEAVE
-                    Neighbor *old_external = get_external_neighbor(node);
-                    // Se o remetente do LEAVE era o vizinho externo deste nó, então o removemos.
-                    if (old_external && old_external->socket_sd == client_sd)
+                    Neighbor *removed_neighbor = find_neighbor_by_sd(node, client_sd);
+                    if (!removed_neighbor || !removed_neighbor->is_valid)
                     {
-                        printf("  Meu vizinho externo %s:%d (SD: %d) saiu. Removido.\n", old_external->ip, old_external->tcp_port, client_sd);
-                        remove_neighbor(node, client_sd);
-                    }
-                    else
-                    { // O vizinho que saiu era interno
-                        printf("  Vizinho interno %s:%d (SD: %d) saiu. Removido.\n", ip_str, tcp_port, client_sd);
-                        remove_neighbor(node, client_sd);
+                        fprintf(stderr, "Erro: LEAVE recebido de SD %d, mas vizinho não encontrado ou inválido.\n", client_sd);
+                        return;
                     }
 
-                    // Analisa o identificador contido na mensagem LEAVE (vizinho externo do REMETENTE do LEAVE)
-                    // Se não for o próprio nó local, tentar conectar a ele como novo vizinho externo.
-                    if (strcmp(ip_str, node->ip) != 0 || tcp_port != node->tcp_port)
+                    // Determinar se o vizinho que saiu era o vizinho externo deste nó
+                    int was_external = (removed_neighbor->type == NEIGHBOR_TYPE_EXTERNAL || removed_neighbor->type == NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL);
+
+                    remove_neighbor(node, client_sd); // Sempre remove o vizinho que enviou LEAVE
+
+                    if (was_external)
                     {
-                        printf("  O vizinho externo do nó que saiu era %s:%d. Tentando conectar a ele como novo externo...\n", ip_str, tcp_port);
-                        Neighbor *potential_new_external = find_neighbor_by_addr(node, ip_str, tcp_port);
-                        if (potential_new_external)
+                        printf("  Meu vizinho externo %s:%d (SD: %d) saiu. Removido. Procurando novo externo.\n", ip_str, tcp_port, client_sd);
+
+                        // Analisa o identificador contido na mensagem LEAVE (vizinho externo do REMETENTE do LEAVE)
+                        if (strcmp(ip_str, node->ip) != 0 || tcp_port != node->tcp_port)
                         {
-                            if (potential_new_external->type == NEIGHBOR_TYPE_INTERNAL)
+                            // Se não for o próprio nó local, tentar conectar a ele como novo vizinho externo.
+                            printf("  O vizinho externo do nó que saiu era %s:%d. Tentando conectar a ele como novo externo...\n", ip_str, tcp_port);
+                            Neighbor *potential_new_external = find_neighbor_by_addr(node, ip_str, tcp_port);
+                            if (potential_new_external)
                             {
-                                printf("  Vizinho externo do nó que saiu (%s:%d) já é meu vizinho interno. Promovendo a externo.\n", ip_str, tcp_port);
-                                potential_new_external->type = NEIGHBOR_TYPE_EXTERNAL;
-                            } // Se já é externo, nenhuma ação
-                        }
-                        else
-                        {
-                            // Se não estava conectado, tenta iniciar uma nova conexão TCP e adiciona como EXTERNAL
-                            int new_sd = connect_to_node(node, ip_str, tcp_port);
-                            if (new_sd != -1)
-                            {
-                                printf("  Conectado com sucesso a %s:%d como novo vizinho externo.\n", ip_str, tcp_port);
+                                // Se já está conectado, promove a externo ou EXTERNAL_AND_INTERNAL se apropriado
+                                if (potential_new_external->type == NEIGHBOR_TYPE_INTERNAL || potential_new_external->type == NEIGHBOR_TYPE_PENDING_INCOMING)
+                                {
+                                    // Se a rede agora tem apenas um vizinho (o que será promovido)
+                                    if (node->num_active_neighbors == 1)
+                                    { // Só sobrou um vizinho (o que será promovido)
+                                        potential_new_external->type = NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL;
+                                        printf("  Vizinho %s:%d promovido a EXTERNAL_AND_INTERNAL (rede com 2 nós).\n", ip_str, tcp_port);
+                                    }
+                                    else
+                                    {
+                                        potential_new_external->type = NEIGHBOR_TYPE_EXTERNAL;
+                                        printf("  Vizinho %s:%d promovido a EXTERNAL.\n", ip_str, tcp_port);
+                                    }
+                                }
+                                // Se já era EXTERNAL_AND_INTERNAL ou EXTERNAL, mantém.
                             }
                             else
                             {
-                                printf("  Falha ao conectar a %s:%d para ser novo vizinho externo.\n", ip_str, tcp_port);
+                                // Se não estava conectado, tenta iniciar uma nova conexão TCP e adiciona como EXTERNAL
+                                int new_sd = connect_to_node(node, ip_str, tcp_port); // connect_to_node já adiciona como EXTERNAL e envia ENTRY
+                                if (new_sd != -1)
+                                {
+                                    printf("  Conectado com sucesso a %s:%d como novo vizinho externo.\n", ip_str, tcp_port);
+                                }
+                                else
+                                {
+                                    printf("  Falha ao conectar a %s:%d para ser novo vizinho externo.\n", ip_str, tcp_port);
+                                }
                             }
                         }
-                    }
-                    else
-                    {
-                        // O vizinho externo do nó que saiu era o próprio nó local.
-                        // Promover um vizinho interno existente a externo.
-                        printf("  O vizinho externo do nó que saiu era EU. Promovendo um vizinho interno a externo.\n");
-                        Neighbor *promoted_neighbor = NULL;
-                        for (int i = 0; i < MAX_NEIGHBORS; i++)
+                        else // O vizinho externo do nó que saiu era o próprio nó local.
                         {
-                            if (node->neighbors[i].is_valid && node->neighbors[i].type == NEIGHBOR_TYPE_INTERNAL)
+                            // Este nó se tornou a "raiz" de uma sub-árvore que foi desconectada.
+                            // Promover um vizinho interno existente a externo.
+                            printf("  O vizinho externo do nó que saiu era EU. Promovendo um vizinho interno a externo.\n");
+                            Neighbor *promoted_neighbor = NULL;
+                            for (int i = 0; i < MAX_NEIGHBORS; i++)
                             {
-                                promoted_neighbor = &node->neighbors[i];
-                                break;
+                                if (node->neighbors[i].is_valid && (node->neighbors[i].type == NEIGHBOR_TYPE_INTERNAL || node->neighbors[i].type == NEIGHBOR_TYPE_PENDING_INCOMING))
+                                { // Procura um interno ou pendente para promover
+                                    promoted_neighbor = &node->neighbors[i];
+                                    break;
+                                }
                             }
-                        }
-                        if (promoted_neighbor)
-                        {
-                            promoted_neighbor->type = NEIGHBOR_TYPE_EXTERNAL;
-                            printf("  Nó %s:%d (SD: %d) promovido a vizinho externo.\n", promoted_neighbor->ip, promoted_neighbor->tcp_port, promoted_neighbor->socket_sd);
-                        }
-                        else
-                        {
-                            printf("  Nenhum vizinho interno para promover a externo. Nó agora está isolado ou é o único.\n");
+                            if (promoted_neighbor)
+                            {
+                                // Se este é o único vizinho restante (rede de 2 nós agora)
+                                if (node->num_active_neighbors == 1)
+                                {
+                                    promoted_neighbor->type = NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL;
+                                    printf("  Nó %s:%d (SD: %d) promovido a EXTERNAL_AND_INTERNAL (rede com 2 nós).\n", promoted_neighbor->ip, promoted_neighbor->tcp_port, promoted_neighbor->socket_sd);
+                                }
+                                else
+                                {
+                                    promoted_neighbor->type = NEIGHBOR_TYPE_EXTERNAL;
+                                    printf("  Nó %s:%d (SD: %d) promovido a EXTERNAL.\n", promoted_neighbor->ip, promoted_neighbor->tcp_port, promoted_neighbor->socket_sd);
+                                }
+                            }
+                            else
+                            {
+                                printf("  Nenhum vizinho interno para promover a externo. Nó agora está isolado ou é o único.\n");
+                            }
                         }
                     }
                 }
             }
-            else
+            else // Se o comando NÃO é ENTRY nem LEAVE (mas é uma mensagem TCP com um comando)
             {
-                fprintf(stderr, "Erro de parsing na mensagem TCP de topologia: %s\n", message);
+                fprintf(stderr, "Tipo de mensagem TCP desconhecido de topologia: '%s' (de SD %d)\n", cmd, client_sd);
             }
         }
-        // Mensagens NDN (INTEREST, OBJECT, NOOBJECT)
+        // Se o comando é uma mensagem NDN (INTEREST, OBJECT, NOOBJECT)
         else if (strcmp(cmd, "INTEREST") == 0 || strcmp(cmd, "OBJECT") == 0 || strcmp(cmd, "NOOBJECT") == 0)
         {
             process_ndn_message(node, client_sd, message); // Encaminha para o módulo NDN
         }
+        // Se o comando NÃO é de topologia nem NDN
         else
         {
-            fprintf(stderr, "Tipo de mensagem TCP desconhecido: '%s' (de SD %d)\n", cmd, client_sd);
+            fprintf(stderr, "Comando TCP '%s' desconhecido (de SD %d)\n", cmd, client_sd);
         }
     }
+    // Se não foi possível ler o comando (mensagem vazia ou mal formatada no início)
     else
     {
-        fprintf(stderr, "Mensagem TCP recebida vazia ou mal formatada para comando: '%s' (de SD %d)\n", message, client_sd);
+        fprintf(stderr, "Mensagem TCP recebida vazia ou mal formatada para comando (de SD %d): '%s'\n", client_sd, message);
     }
 }

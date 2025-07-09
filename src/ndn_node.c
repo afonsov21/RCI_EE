@@ -2,7 +2,7 @@
 #include "ui_handler.h"
 #include "registration_protocol.h"
 #include "topology_protocol.h"
-#include "ndn_protocol.h" // Incluir o novo cabeçalho
+#include "ndn_protocol.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,9 +27,7 @@ void ndn_node_init(const char *ip, int tcp_port, const char *reg_ip, int reg_udp
     strncpy(current_node.reg_ip, reg_ip, sizeof(current_node.reg_ip) - 1);
     current_node.reg_ip[sizeof(current_node.reg_ip) - 1] = '\0';
     current_node.reg_udp_port = reg_udp_port;
-    current_node.current_net_id = -1;                  // Inicializa sem rede
-    current_node.is_leaving = 0;                       // Inicializa como não estando a sair
-    current_node.internal_neighbors_to_disconnect = 0; // Nenhum para desconectar inicialmente
+    current_node.current_net_id = -1; // Inicializa sem rede
 
     // Inicializar vizinhos
     current_node.num_active_neighbors = 0;
@@ -42,13 +40,14 @@ void ndn_node_init(const char *ip, int tcp_port, const char *reg_ip, int reg_udp
         memset(current_node.neighbors[i].recv_buffer, 0, sizeof(current_node.neighbors[i].recv_buffer));
     }
 
+    current_node.is_leaving = 0;                       // Inicializa como não estando a sair
+    current_node.internal_neighbors_to_disconnect = 0; // Nenhum para desconectar inicialmente
+
     // Inicializar estruturas NDN
     init_local_objects(&current_node);     // Chamar a função de inicialização
     init_cache(&current_node);             // Chamar a função de inicialização
     init_pending_interests(&current_node); // Chamar a função de inicialização
-    current_node.num_local_objects = 0;
-    current_node.num_cached_objects = 0;
-    current_node.num_pending_interests = 0;
+    // num_local_objects, num_cached_objects, num_pending_interests são inicializados dentro das respectivas init_* funções
 
     // 1. Inicializar Socket TCP de Escuta (Servidor TCP)
     current_node.tcp_listen_sd = socket(AF_INET, SOCK_STREAM, 0);
@@ -63,7 +62,7 @@ void ndn_node_init(const char *ip, int tcp_port, const char *reg_ip, int reg_udp
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(current_node.tcp_port);
-    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY); // Escutar em todas as interfaces
 
     int optval = 1;
     if (setsockopt(current_node.tcp_listen_sd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1)
@@ -218,7 +217,7 @@ void start_ndn_node_loop()
             }
         }
 
-        // 4. Lidar com dados recebidos de vizinhos TCP existentes
+        // 4. Lidar com dados recebidos de vizinhos TCP existentes (e fechos de conexão)
         for (int i = 0; i < MAX_NEIGHBORS; i++)
         {
             if (node->neighbors[i].is_valid && node->neighbors[i].socket_sd != -1 &&
@@ -240,7 +239,7 @@ void start_ndn_node_loop()
                     }
 
                     // Se o nó está a sair e este vizinho é interno, decrementa o contador
-                    if (node->is_leaving && node->neighbors[i].type == NEIGHBOR_TYPE_INTERNAL)
+                    if (node->is_leaving && (node->neighbors[i].type == NEIGHBOR_TYPE_INTERNAL || node->neighbors[i].type == NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL))
                     {
                         node->internal_neighbors_to_disconnect--;
                         printf("Nó a sair: Vizinho interno desconectou. Restam %d vizinhos internos.\n", node->internal_neighbors_to_disconnect);
@@ -254,6 +253,7 @@ void start_ndn_node_loop()
                 }
             }
         }
+
         // Se o nó está a sair e todos os vizinhos internos desconectaram, sair do loop
         if (node->is_leaving && node->internal_neighbors_to_disconnect <= 0)
         {

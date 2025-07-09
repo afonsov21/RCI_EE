@@ -15,8 +15,9 @@ typedef enum
 {
     NEIGHBOR_TYPE_EXTERNAL,
     NEIGHBOR_TYPE_INTERNAL,
-    NEIGHBOR_TYPE_PENDING_INCOMING, // NOVO TIPO
-    NEIGHBOR_TYPE_NONE              // Para vizinhos não classificados ou slots vazios
+    NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL, // NOVO TIPO: Para o caso de dois nós
+    NEIGHBOR_TYPE_PENDING_INCOMING,      // Para conexões aceitas, mas IP/Porta real ainda não conhecido
+    NEIGHBOR_TYPE_NONE                   // Para vizinhos não classificados ou slots vazios
 } NeighborType;
 
 #define MAX_TCP_RECV_BUFFER_SIZE (MAX_TCP_MSG_LEN * 2) // Buffer para receber mensagens fragmentadas
@@ -27,7 +28,7 @@ typedef struct
     char ip[MAX_IP_LEN];
     int tcp_port;
     int socket_sd;     // Socket descriptor para esta conexão TCP
-    NeighborType type; // EXTERNAL ou INTERNAL
+    NeighborType type; // EXTERNAL ou INTERNAL ou EXTERNAL_AND_INTERNAL
     int is_valid;      // 1 se o slot está em uso, 0 caso contrário
 
     // Buffer de receção para este socket específico
@@ -36,7 +37,7 @@ typedef struct
 } Neighbor;
 
 #define MAX_NEIGHBORS 10        // Número máximo de vizinhos que um nó pode ter
-#define MAX_OBJECT_NAME_LEN 100 // Máximo de 100 caracteres para o nome do objeto [cite: 128]
+#define MAX_OBJECT_NAME_LEN 100 // Máximo de 100 caracteres para o nome do objeto
 
 // --- Novas estruturas para a NDN ---
 
@@ -49,25 +50,24 @@ typedef struct
 } LocalObject;
 
 // Para a cache de objetos
-#define MAX_CACHE_OBJECTS 10 // A cache terá um tamanho máximo de 5 objetos [cite: 86]
+#define MAX_CACHE_OBJECTS 5 // A cache terá um tamanho máximo de 5 objetos
 typedef struct
 {
     char name[MAX_OBJECT_NAME_LEN + 1]; // Nome do objeto
-    // TODO: Adicionar um timestamp para política de gestão (LRU ou FIFO, por exemplo)
-    int is_valid;          // 1 se o slot está em uso, 0 caso contrário
-    long last_access_time; // Para política LRU (simplificada, apenas para exemplo)
+    long last_access_time;              // Para política LRU (simplificada, apenas para exemplo)
+    int is_valid;                       // 1 se o slot está em uso, 0 caso contrário
 } CachedObject;
 
 // Para a Tabela de Interesses Pendentes (PIT - Pending Interest Table)
 #define MAX_PENDING_INTERESTS 50   // Limite para interesses pendentes
 #define MAX_INTEREST_INTERFACES 10 // Limite de interfaces por interesse (pode ser MAX_NEIGHBORS + 1 (stdin))
 
-// Estados de uma interface para um interesse [cite: 72, 73, 76]
+// Estados de uma interface para um interesse
 typedef enum
 {
-    INTERFACE_STATE_RESPONSE, // Por onde a mensagem de objeto/não-objeto deverá ser reencaminhada [cite: 72]
-    INTERFACE_STATE_WAITING,  // Por onde o nó encaminhou ou reencaminhou uma mensagem de interesse [cite: 75]
-    INTERFACE_STATE_CLOSED,   // Por onde o nó recebeu uma mensagem de não-objeto [cite: 76]
+    INTERFACE_STATE_RESPONSE, // Por onde a mensagem de objeto/não-objeto deverá ser reencaminhada
+    INTERFACE_STATE_WAITING,  // Por onde o nó encaminhou ou reencaminhou uma mensagem de interesse
+    INTERFACE_STATE_CLOSED,   // Por onde o nó recebeu uma mensagem de não-objeto
     INTERFACE_STATE_NONE      // Slot vazio ou não usado
 } InterestInterfaceState;
 
@@ -80,8 +80,8 @@ typedef struct
 
 typedef struct
 {
-    unsigned char interest_id;                 // Identificador de procura (0-255) [cite: 80]
-    char object_name[MAX_OBJECT_NAME_LEN + 1]; // Nome do objeto procurado [cite: 71]
+    unsigned char interest_id;                 // Identificador de procura (0-255)
+    char object_name[MAX_OBJECT_NAME_LEN + 1]; // Nome do objeto procurado
     InterestInterface interfaces[MAX_INTEREST_INTERFACES];
     int num_active_interfaces; // Contagem de interfaces para este interesse
     int is_valid;              // 1 se esta entrada está em uso

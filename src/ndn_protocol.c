@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>   // Para time() em srand() e last_access_time
-#include <unistd.h> // Para write() em sockets
+#include <unistd.h> // Para write() em sockets, STDIN_FILENO
 
 // Helper function: Inicializa a tabela de interesses pendentes
 void init_pending_interests(NDNNode *node)
@@ -20,6 +20,7 @@ void init_pending_interests(NDNNode *node)
             node->pending_interests[i].interfaces[j].state = INTERFACE_STATE_NONE;
         }
     }
+    node->num_pending_interests = 0;
 }
 
 // Helper function: Inicializa os objetos locais
@@ -29,7 +30,7 @@ void init_local_objects(NDNNode *node)
     {
         node->local_objects[i].is_valid = 0;
     }
-    node->num_local_objects = 0; // ADICIONADO: Inicializa o contador
+    node->num_local_objects = 0; // Inicializa o contador
 }
 
 // Helper function: Inicializa a cache
@@ -40,7 +41,7 @@ void init_cache(NDNNode *node)
         node->object_cache[i].is_valid = 0;
         node->object_cache[i].last_access_time = 0; // Inicializar também o timestamp
     }
-    node->num_cached_objects = 0; // ADICIONADO: Inicializa o contador
+    node->num_cached_objects = 0; // Inicializa o contador
 }
 
 // Funções de gestão de objetos locais
@@ -122,10 +123,10 @@ void add_object_to_cache(NDNNode *node, const char *name)
         {
             strncpy(node->object_cache[i].name, name, MAX_OBJECT_NAME_LEN);
             node->object_cache[i].name[MAX_OBJECT_NAME_LEN] = '\0';
-            node->object_cache[i].is_valid = 1; // <--- Esta flag é definida aqui
+            node->object_cache[i].is_valid = 1;
             node->object_cache[i].last_access_time = time(NULL);
-            node->num_cached_objects++;
-            printf("DEBUG: add_object_to_cache: Adicionado '%s' no slot %d (num_cached_objects: %d, is_valid: %d).\n",
+            node->num_cached_objects++; // SÓ INCREMENTA QUANDO ADICIONA NOVO
+            printf("Adicionado '%s' no slot %d (num_cached_objects: %d, is_valid: %d).\n",
                    name, i, node->num_cached_objects, node->object_cache[i].is_valid); // DEBUG INFO
             return;
         }
@@ -133,7 +134,7 @@ void add_object_to_cache(NDNNode *node, const char *name)
 
     // Cache cheia, aplica política LRU: remove o menos recentemente usado
     printf("Cache cheia. Aplicando política LRU para '%s'.\n", name);
-    long oldest_time = time(NULL) + 1;
+    long oldest_time = time(NULL) + 1; // Inicializa com um valor maior para garantir que o primeiro é sempre "oldest"
     int oldest_idx = -1;
 
     for (int i = 0; i < MAX_CACHE_OBJECTS; i++)
@@ -150,14 +151,14 @@ void add_object_to_cache(NDNNode *node, const char *name)
         printf("Removendo '%s' da cache (LRU).\n", node->object_cache[oldest_idx].name);
         strncpy(node->object_cache[oldest_idx].name, name, MAX_OBJECT_NAME_LEN);
         node->object_cache[oldest_idx].name[MAX_OBJECT_NAME_LEN] = '\0';
-        // node->object_cache[oldest_idx].is_valid já deve ser 1
         node->object_cache[oldest_idx].last_access_time = time(NULL);
+        // num_cached_objects NÃO ALTERA AQUI - é uma SUBSTITUIÇÃO
         printf("DEBUG: add_object_to_cache: Substituindo slot %d por '%s' (num_cached_objects: %d, is_valid: %d).\n",
                oldest_idx, name, node->num_cached_objects, node->object_cache[oldest_idx].is_valid); // DEBUG INFO
     }
     else
     {
-        fprintf(stderr, "Erro lógico: Cache cheia, mas não encontrei LRU válido para remover.\n");
+        fprintf(stderr, "Erro lógico: Cache cheia, mas não encontrei LRU válido para remover (todos os timestamps eram 0?).\n");
     }
 }
 
@@ -179,11 +180,10 @@ void send_interest_message(int target_sd, unsigned char id, const char *name)
 {
     char message[MAX_TCP_MSG_LEN];
     snprintf(message, sizeof(message), "INTEREST %u %s\n", id, name); // %u para unsigned char
-    printf("Enviando INTEREST para SD %d: '%s'", target_sd, message);
+    printf("Enviando INTEREST (ID: %u) para SD %d: '%s'", id, target_sd, message);
     if (write(target_sd, message, strlen(message)) == -1)
     {
         perror("Erro ao enviar mensagem INTEREST");
-        // A falha na escrita pode significar que o vizinho caiu, lidar com isso
         NDNNode *node = get_current_ndn_node(); // Acessar o nó global
         remove_neighbor(node, target_sd);
     }
@@ -193,7 +193,7 @@ void send_object_message(int target_sd, unsigned char id, const char *name)
 {
     char message[MAX_TCP_MSG_LEN];
     snprintf(message, sizeof(message), "OBJECT %u %s\n", id, name);
-    printf("Enviando OBJECT para SD %d: '%s'", target_sd, message);
+    printf("Enviando OBJECT (ID: %u) para SD %d: '%s'", id, target_sd, message);
     if (write(target_sd, message, strlen(message)) == -1)
     {
         perror("Erro ao enviar mensagem OBJECT");
@@ -206,7 +206,7 @@ void send_noobject_message(int target_sd, unsigned char id, const char *name)
 {
     char message[MAX_TCP_MSG_LEN];
     snprintf(message, sizeof(message), "NOOBJECT %u %s\n", id, name);
-    printf("Enviando NOOBJECT para SD %d: '%s'", target_sd, message);
+    printf("Enviando NOOBJECT (ID: %u) para SD %d: '%s'", id, target_sd, message);
     if (write(target_sd, message, strlen(message)) == -1)
     {
         perror("Erro ao enviar mensagem NOOBJECT");
@@ -222,7 +222,6 @@ void show_local_objects(NDNNode *node)
     if (node->num_local_objects == 0)
     {
         printf("  (Nenhum)\n");
-        // REMOVER O 'return;' AQUI
     }
     for (int i = 0; i < MAX_LOCAL_OBJECTS; i++)
     {
@@ -231,7 +230,6 @@ void show_local_objects(NDNNode *node)
             printf("  - %s (Local)\n", node->local_objects[i].name); // Adicionado "(Local)" para clareza
         }
     }
-
     printf("Objetos em Cache (%d):\n", node->num_cached_objects);
     if (node->num_cached_objects == 0)
     {
@@ -239,8 +237,11 @@ void show_local_objects(NDNNode *node)
     }
     else
     {
+        printf("DEBUG: show_local_objects: Iterando sobre a cache. MAX_CACHE_OBJECTS = %d.\n", MAX_CACHE_OBJECTS); // DEBUG INFO
         for (int i = 0; i < MAX_CACHE_OBJECTS; i++)
         {
+            printf("DEBUG: show_local_objects: Slot %d: is_valid = %d, Nome = '%s'.\n",
+                   i, node->object_cache[i].is_valid, node->object_cache[i].is_valid ? node->object_cache[i].name : "N/A"); // DEBUG INFO
             if (node->object_cache[i].is_valid)
             {
                 printf("  - %s (Cache, Last Access: %ld)\n", node->object_cache[i].name, node->object_cache[i].last_access_time);
@@ -288,7 +289,7 @@ void show_interest_table(NDNNode *node)
                 }
             }
             if (!has_waiting)
-            { // Esta é uma validação da especificação [cite: 77]
+            {
                 printf("      AVISO: Nenhuma interface em estado 'ESPERA' para este interesse (ID: %u).\n", node->pending_interests[i].interest_id);
             }
         }
@@ -297,7 +298,7 @@ void show_interest_table(NDNNode *node)
 
 // --- Lógica principal de obtenção de objetos ---
 
-// Início de uma pesquisa (chamada do UI) [cite: 78]
+// Início de uma pesquisa (chamada do UI)
 void initiate_retrieve(NDNNode *node, const char *object_name)
 {
     if (node->current_net_id == -1)
@@ -306,30 +307,53 @@ void initiate_retrieve(NDNNode *node, const char *object_name)
         return;
     }
 
-    // 1. Verificar se o nó já tem o objeto localmente [cite: 80]
+    // 1. Verificar se o nó já tem o objeto localmente
     if (has_local_object(node, object_name))
     {
         printf("Objeto '%s' encontrado localmente. Não é necessária pesquisa.\n", object_name);
         return;
     }
 
-    // 2. Verificar se o objeto está na cache [cite: 85]
+    // 2. Verificar se o objeto está na cache
     if (has_cached_object(node, object_name))
     {
         printf("Objeto '%s' encontrado na cache. Não é necessária pesquisa.\n", object_name);
         return;
     }
 
-    // Se não tiver o objeto, iniciar a pesquisa [cite: 80]
+    // Se não tiver o objeto, iniciar a pesquisa
 
-    // 3. Escolher um identificador de procura aleatoriamente entre 0 e 255 [cite: 80]
+    // 3. Escolher um identificador de procura aleatoriamente entre 0 e 255
     srand(time(NULL)); // Inicializa o gerador de números aleatórios
-    unsigned char interest_id = (unsigned char)(rand() % 256);
+    unsigned char interest_id;
+    int id_found = 0;
+    for (int attempts = 0; attempts < 256; attempts++)
+    { // Tenta encontrar um ID único
+        unsigned char potential_id = (unsigned char)(rand() % 256);
+        int is_unique = 1;
+        for (int i = 0; i < MAX_PENDING_INTERESTS; i++)
+        {
+            if (node->pending_interests[i].is_valid && node->pending_interests[i].interest_id == potential_id)
+            {
+                is_unique = 0;
+                break;
+            }
+        }
+        if (is_unique)
+        {
+            interest_id = potential_id;
+            id_found = 1;
+            break;
+        }
+    }
 
-    // TODO: Lidar com colisões de interesse_id (especificação deixa ao critério dos alunos)
-    // Por enquanto, assumimos que não há colisão. Numa implementação real, verificaria na PIT.
+    if (!id_found)
+    {
+        fprintf(stderr, "Erro: Não foi possível gerar um interest_id único. Tabela PIT pode estar saturada com IDs.\n");
+        return;
+    }
 
-    // 4. Criar a entrada correspondente na tabela de interesses pendentes (PIT) [cite: 80]
+    // 4. Criar a entrada correspondente na tabela de interesses pendentes (PIT)
     int pit_idx = -1;
     for (int i = 0; i < MAX_PENDING_INTERESTS; i++)
     {
@@ -352,14 +376,24 @@ void initiate_retrieve(NDNNode *node, const char *object_name)
     new_interest->object_name[MAX_OBJECT_NAME_LEN] = '\0';
     new_interest->num_active_interfaces = 0;
 
-    // A interface que gerou o interesse (o utilizador local) é a interface de RESPOSTA [cite: 72]
-    new_interest->interfaces[new_interest->num_active_interfaces].sd = STDIN_FILENO; // Representa o utilizador
-    new_interest->interfaces[new_interest->num_active_interfaces].state = INTERFACE_STATE_RESPONSE;
-    new_interest->interfaces[new_interest->num_active_interfaces].is_valid = 1;
-    new_interest->num_active_interfaces++;
+    // A interface que gerou o interesse (o utilizador local) é a interface de RESPOSTA
+    if (new_interest->num_active_interfaces < MAX_INTEREST_INTERFACES)
+    {
+        new_interest->interfaces[new_interest->num_active_interfaces].sd = STDIN_FILENO; // Representa o utilizador
+        new_interest->interfaces[new_interest->num_active_interfaces].state = INTERFACE_STATE_RESPONSE;
+        new_interest->interfaces[new_interest->num_active_interfaces].is_valid = 1;
+        new_interest->num_active_interfaces++;
+    }
+    else
+    {
+        fprintf(stderr, "Erro: Limite de interfaces por interesse atingido para STDIN. Não pode iniciar pesquisa.\n");
+        node->pending_interests[pit_idx].is_valid = 0; // Invalidar a entrada se não pode ser usada
+        return;
+    }
 
-    // 5. Enviar uma mensagem de interesse por CADA uma das suas interfaces (vizinhos) [cite: 80]
-    // Colocando estas interfaces no estado de ESPERA [cite: 75]
+    // 5. Enviar uma mensagem de interesse por CADA uma das suas interfaces (vizinhos)
+    // Colocando estas interfaces no estado de ESPERA
+    int sent_to_any_neighbor = 0;
     for (int i = 0; i < MAX_NEIGHBORS; i++)
     {
         if (node->neighbors[i].is_valid && node->neighbors[i].socket_sd != -1)
@@ -371,6 +405,7 @@ void initiate_retrieve(NDNNode *node, const char *object_name)
                 new_interest->interfaces[new_interest->num_active_interfaces].state = INTERFACE_STATE_WAITING;
                 new_interest->interfaces[new_interest->num_active_interfaces].is_valid = 1;
                 new_interest->num_active_interfaces++;
+                sent_to_any_neighbor = 1;
             }
             else
             {
@@ -379,8 +414,20 @@ void initiate_retrieve(NDNNode *node, const char *object_name)
             }
         }
     }
-    node->num_pending_interests++;
-    printf("Pesquisa para '%s' iniciada com ID %u.\n", object_name, interest_id);
+
+    // If no neighbors to send to, and only STDIN is in the PIT, then send NOOBJECT back immediately.
+    if (!sent_to_any_neighbor)
+    {
+        printf("Nó %s:%d não tem vizinhos para reencaminhar INTEREST para '%s'. Enviando NOOBJECT de volta ao usuário.\n", node->ip, node->tcp_port, object_name);
+        printf("Objeto '%s' (ID: %u) NÃO ENCONTRADO para o utilizador local.\n", object_name, interest_id);
+        new_interest->is_valid = 0; // Remove from PIT if no interfaces are waiting
+        node->num_pending_interests--;
+    }
+    else
+    {
+        node->num_pending_interests++;
+        printf("Pesquisa para '%s' iniciada com ID %u.\n", object_name, interest_id);
+    }
 }
 
 // Processamento de qualquer mensagem NDN recebida (chamada pelo topology_protocol.c)
@@ -401,7 +448,7 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
     {
         printf("Recebida INTEREST (ID: %u, Nome: %s) de SD %d.\n", interest_id, object_name, client_sd);
 
-        // 1. Verificar se o nó tem o objeto [cite: 82]
+        // 1. Verificar se o nó tem o objeto
         if (has_local_object(node, object_name))
         {
             printf("  Objeto '%s' encontrado localmente. Respondendo com OBJECT.\n", object_name);
@@ -417,7 +464,7 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
             return;
         }
 
-        // 3. Se o nó não tiver o objeto localmente ou na cache [cite: 82, 83]
+        // 3. Se o nó não tiver o objeto localmente ou na cache
         // Procurar na Tabela de Interesses Pendentes (PIT) se já existe este interesse
         PendingInterestEntry *existing_interest = NULL;
         for (int i = 0; i < MAX_PENDING_INTERESTS; i++)
@@ -491,7 +538,7 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
             new_interest->object_name[MAX_OBJECT_NAME_LEN] = '\0';
             new_interest->num_active_interfaces = 0;
 
-            // A interface de onde veio a mensagem é a interface de RESPOSTA [cite: 83]
+            // A interface de onde veio a mensagem é a interface de RESPOSTA
             if (new_interest->num_active_interfaces < MAX_INTEREST_INTERFACES)
             {
                 new_interest->interfaces[new_interest->num_active_interfaces].sd = client_sd;
@@ -509,8 +556,8 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
             node->num_pending_interests++;
             existing_interest = new_interest; // Definir para reencaminhar
 
-            // Reencaminhar a mensagem de interesse por todas as outras interfaces (exceto a de entrada) [cite: 83]
-            // Colocando-as no estado de ESPERA [cite: 83]
+            // Reencaminhar a mensagem de interesse por todas as outras interfaces (exceto a de entrada)
+            // Colocando-as no estado de ESPERA
             if (node->num_active_neighbors == 0)
             { // Se não tem vizinhos para reencaminhar
                 printf("  Nó não tem vizinhos para reencaminhar INTEREST. Enviando NOOBJECT de volta.\n");
@@ -541,7 +588,7 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
                     }
                 }
             }
-            // A especificação diz: "Cada entrada na tabela de interesses terá pelo menos uma interface no estado de espera." [cite: 77]
+            // A especificação diz: "Cada entrada na tabela de interesses terá pelo menos uma interface no estado de espera."
             // Se nenhuma interface foi colocada em ESPERA (ex: apenas 1 vizinho e foi a interface de entrada), deve enviar NOOBJECT.
             int has_waiting_interface = 0;
             for (int i = 0; i < existing_interest->num_active_interfaces; ++i)
@@ -565,7 +612,7 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
     {
         printf("Recebido OBJECT (ID: %u, Nome: %s) de SD %d.\n", interest_id, object_name, client_sd);
 
-        // Se o identificador da procura consta da tabela de interesses pendentes [cite: 85]
+        // Se o identificador da procura consta da tabela de interesses pendentes
         PendingInterestEntry *pending_interest = NULL;
         for (int i = 0; i < MAX_PENDING_INTERESTS; i++)
         {
@@ -579,10 +626,10 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
 
         if (pending_interest)
         {
-            // O objeto é guardado em cache [cite: 85]
+            // O objeto é guardado em cache
             add_object_to_cache(node, object_name);
 
-            // A mensagem é reencaminhada pela interface no estado de RESPOSTA [cite: 85]
+            // A mensagem é reencaminhada pela interface no estado de RESPOSTA
             for (int i = 0; i < MAX_INTEREST_INTERFACES; i++)
             {
                 if (pending_interest->interfaces[i].is_valid && pending_interest->interfaces[i].state == INTERFACE_STATE_RESPONSE)
@@ -615,7 +662,7 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
     {
         printf("Recebido NOOBJECT (ID: %u, Nome: %s) de SD %d.\n", interest_id, object_name, client_sd);
 
-        // Se o identificador da procura consta da tabela de interesses pendentes [cite: 88]
+        // Se o identificador da procura consta da tabela de interesses pendentes
         PendingInterestEntry *pending_interest = NULL;
         for (int i = 0; i < MAX_PENDING_INTERESTS; i++)
         {
@@ -629,7 +676,7 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
 
         if (pending_interest)
         {
-            // O estado da interface por onde a mensagem é recebida passa a FECHADO [cite: 88]
+            // O estado da interface por onde a mensagem é recebida passa a FECHADO
             int interface_found = 0;
             for (int i = 0; i < MAX_INTEREST_INTERFACES; i++)
             {
@@ -649,7 +696,7 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
                 // Pode ser um NOOBJECT de uma interface que não estava em ESPERA, ou já foi tratada.
             }
 
-            // Se, em resultado desta atualização, não houver interfaces no estado de ESPERA [cite: 89]
+            // Se, em resultado desta atualização, não houver interfaces no estado de ESPERA
             int has_waiting_interface = 0;
             for (int i = 0; i < MAX_INTEREST_INTERFACES; i++)
             {
@@ -662,7 +709,7 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
 
             if (!has_waiting_interface)
             {
-                // Então é enviada uma mensagem de não-objeto pela interface no estado de RESPOSTA [cite: 89]
+                // Então é enviada uma mensagem de não-objeto pela interface no estado de RESPOSTA
                 printf("  Nenhuma interface em ESPERA restante para interesse ID %u, nome %s. Enviando NOOBJECT de volta.\n", interest_id, object_name);
                 for (int i = 0; i < MAX_INTEREST_INTERFACES; i++)
                 {
