@@ -5,8 +5,10 @@ LDFLAGS =
 SRCDIR = src
 BUILDDIR = .
 
-SOURCES = $(wildcard $(SRCDIR)/*.c)
-OBJECTS = $(patsubst $(SRCDIR)/%.c, $(BUILDDIR)/%.o, $(SOURCES))
+SOURCES = $(SRCDIR)/main.c $(SRCDIR)/ui_handler.c $(SRCDIR)/registration_protocol.c $(SRCDIR)/ndn_node.c $(SRCDIR)/ndn_protocol.c $(SRCDIR)/topology_protocol.c
+
+OBJECTS = main.o ui_handler.o registration_protocol.o ndn_node.o ndn_protocol.o topology_protocol.o
+
 EXECUTABLE = ndn
 
 all: $(EXECUTABLE)
