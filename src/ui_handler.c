@@ -71,11 +71,20 @@ void handle_user_command(char *command_line)
                 printf("Uso: join (j) <net>\n");
             }
         }
-        else if (strcmp(cmd, "direct") == 0)
+        else if (strcmp(cmd, "direct") == 0 || strcmp(cmd, "dj") == 0)
         {
             char sub_cmd[50];
-            int num_scanned = sscanf(command_line, "%*s %s %s %d", sub_cmd, arg1, &arg3);
-            if (num_scanned == 3 && (strcmp(sub_cmd, "join") == 0 || strcmp(sub_cmd, "dj") == 0))
+            int num_scanned = 0;
+            if (strcmp(cmd, "direct") == 0)
+            {
+                num_scanned = sscanf(command_line, "%*s %s %s %d", sub_cmd, arg1, &arg3);
+            }
+            if (strcmp(cmd, "dj") == 0)
+            {
+                num_scanned = sscanf(command_line, "%s %s %d", sub_cmd, arg1, &arg3);
+            }
+
+            if ((num_scanned == 3 && strcmp(sub_cmd, "join") == 0) || strcmp(cmd, "dj") == 0)
             {
                 char *connect_ip = arg1;
                 int connect_tcp = arg3;
