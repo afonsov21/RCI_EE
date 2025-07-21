@@ -152,13 +152,13 @@ void handle_user_command(char *command_line)
                 printf("Uso: retrieve (r) <name>\n");
             }
         }
-        else if (strcmp(cmd, "show") == 0)
+        else if (strcmp(cmd, "show") == 0 || strcmp(cmd, "st") == 0 || strcmp(cmd, "sn") == 0 || strcmp(cmd, "si") == 0)
         {
             char sub_cmd[50];
             int num_scanned = sscanf(command_line, "%*s %s", sub_cmd);
-            if (num_scanned == 1)
+            if (num_scanned == 1 || strcmp(cmd, "st") == 0 || strcmp(cmd, "sn") == 0 || strcmp(cmd, "si") == 0)
             {
-                if (strcmp(sub_cmd, "topology") == 0 || strcmp(sub_cmd, "st") == 0)
+                if (strcmp(sub_cmd, "topology") == 0 || strcmp(cmd, "st") == 0)
                 {
                     printf("Comando: show topology\n");
                     printf("  Nó atual: %s:%d\n", node->ip, node->tcp_port);
@@ -185,16 +185,16 @@ void handle_user_command(char *command_line)
                         printf("    (Nenhum)\n");
                     }
                 }
-                else if (strcmp(sub_cmd, "names") == 0 || strcmp(sub_cmd, "sn") == 0)
+                else if (strcmp(sub_cmd, "names") == 0 || strcmp(cmd, "sn") == 0)
                 {
                     printf("Comando: show names\n");
                     show_local_objects(node); // CHAMA FUNÇÃO NDN
                 }
-                else if (strcmp(sub_cmd, "interest") == 0)
+                else if (strcmp(sub_cmd, "interest") == 0 || strcmp(cmd, "si") == 0)
                 {
                     char next_arg[50];
                     sscanf(command_line, "%*s %*s %s", next_arg);
-                    if (strcmp(next_arg, "table") == 0 || strcmp(next_arg, "si") == 0)
+                    if (strcmp(next_arg, "table") == 0 || strcmp(cmd, "si") == 0)
                     {
                         printf("Comando: show interest table\n");
                         show_interest_table(node); // CHAMA FUNÇÃO NDN

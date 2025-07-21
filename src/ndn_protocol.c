@@ -349,7 +349,6 @@ void initiate_retrieve(NDNNode *node, const char *object_name)
 
     if (!id_found)
     {
-        fprintf(stderr, "Erro: Não foi possível gerar um interest_id único. Tabela PIT pode estar saturada com IDs.\n");
         return;
     }
 
@@ -386,7 +385,6 @@ void initiate_retrieve(NDNNode *node, const char *object_name)
     }
     else
     {
-        fprintf(stderr, "Erro: Limite de interfaces por interesse atingido para STDIN. Não pode iniciar pesquisa.\n");
         node->pending_interests[pit_idx].is_valid = 0; // Invalidar a entrada se não pode ser usada
         return;
     }
@@ -409,7 +407,6 @@ void initiate_retrieve(NDNNode *node, const char *object_name)
             }
             else
             {
-                fprintf(stderr, "Aviso: Limite de interfaces por interesse atingido para ID %u. Não enviou interesse por todos os vizinhos.\n", interest_id);
                 break;
             }
         }
@@ -439,7 +436,6 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
 
     if (sscanf(message, "%s %u %s", cmd, &id_uint, object_name) != 3)
     {
-        fprintf(stderr, "Mensagem NDN mal formatada ou incompleta: %s\n", message);
         return;
     }
     unsigned char interest_id = (unsigned char)id_uint;
@@ -525,7 +521,6 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
             }
             if (pit_idx == -1)
             {
-                fprintf(stderr, "Erro: Tabela de Interesses Pendentes cheia. Não é possível processar INTEREST ID %u para '%s'.\n", interest_id, object_name);
                 // Neste caso, o interesse não pode ser reencaminhado. Poderíamos enviar NOOBJECT de volta.
                 send_noobject_message(client_sd, interest_id, object_name);
                 return;
@@ -548,7 +543,6 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
             }
             else
             {
-                fprintf(stderr, "Aviso: Limite de interfaces para interesse %u atingido (Resposta)..\n", interest_id);
                 send_noobject_message(client_sd, interest_id, object_name); // Se não pode adicionar interface de resposta
                 node->pending_interests[pit_idx].is_valid = 0;              // Invalidar a entrada se não pode ser usada
                 return;
@@ -560,7 +554,6 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
             // Colocando-as no estado de ESPERA
             if (node->num_active_neighbors == 0)
             { // Se não tem vizinhos para reencaminhar
-                printf("  Nó não tem vizinhos para reencaminhar INTEREST. Enviando NOOBJECT de volta.\n");
                 send_noobject_message(client_sd, interest_id, object_name);
                 // Remover a entrada da PIT se não há espera
                 node->pending_interests[pit_idx].is_valid = 0;
@@ -583,7 +576,6 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
                     }
                     else
                     {
-                        fprintf(stderr, "Aviso: Limite de interfaces por interesse atingido. Não reencaminhou para todos os vizinhos.\n");
                         break;
                     }
                 }
@@ -601,7 +593,6 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
             }
             if (!has_waiting_interface)
             {
-                printf("  Nenhuma interface em ESPERA após reencaminhamento. Enviando NOOBJECT de volta.\n");
                 send_noobject_message(client_sd, interest_id, object_name);
                 existing_interest->is_valid = 0;
                 node->num_pending_interests--;
@@ -610,7 +601,6 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
     }
     else if (strcmp(cmd, "OBJECT") == 0)
     {
-        printf("Recebido OBJECT (ID: %u, Nome: %s) de SD %d.\n", interest_id, object_name, client_sd);
 
         // Se o identificador da procura consta da tabela de interesses pendentes
         PendingInterestEntry *pending_interest = NULL;
@@ -642,7 +632,6 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
                     }
                     else
                     {
-                        printf("  Reencaminhando OBJECT (ID: %u, Nome: %s) para SD %d (interface de RESPOSTA).\n", interest_id, object_name, response_sd);
                         send_object_message(response_sd, interest_id, object_name);
                     }
                     break; // Supondo apenas uma interface de RESPOSTA por interesse.
@@ -651,16 +640,11 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
             // A entrada correspondente à procura é apagada da tabela de interesses pendentes
             pending_interest->is_valid = 0;
             node->num_pending_interests--;
-            printf("  Entrada da PIT para ID %u, nome %s apagada.\n", interest_id, object_name);
         }
-        else
-        {
-            printf("  OBJECT (ID: %u, Nome: %s) recebido, mas não há interesse pendente correspondente. Descartado.\n", interest_id, object_name);
-        }
+
     }
     else if (strcmp(cmd, "NOOBJECT") == 0)
     {
-        printf("Recebido NOOBJECT (ID: %u, Nome: %s) de SD %d.\n", interest_id, object_name, client_sd);
 
         // Se o identificador da procura consta da tabela de interesses pendentes
         PendingInterestEntry *pending_interest = NULL;
@@ -684,8 +668,6 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
                 {
                     pending_interest->interfaces[i].state = INTERFACE_STATE_CLOSED;
                     interface_found = 1;
-                    printf("  Interface SD %d para interesse ID %u, nome %s, definida para estado FECHADO.\n",
-                           client_sd, interest_id, object_name);
                     break;
                 }
             }
@@ -710,7 +692,6 @@ void process_ndn_message(NDNNode *node, int client_sd, const char *message)
             if (!has_waiting_interface)
             {
                 // Então é enviada uma mensagem de não-objeto pela interface no estado de RESPOSTA
-                printf("  Nenhuma interface em ESPERA restante para interesse ID %u, nome %s. Enviando NOOBJECT de volta.\n", interest_id, object_name);
                 for (int i = 0; i < MAX_INTEREST_INTERFACES; i++)
                 {
                     if (pending_interest->interfaces[i].is_valid && pending_interest->interfaces[i].state == INTERFACE_STATE_RESPONSE)

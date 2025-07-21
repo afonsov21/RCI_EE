@@ -121,7 +121,6 @@ void start_ndn_node_loop()
     NDNNode *node = get_current_ndn_node();
     char temp_read_buffer[MAX_TCP_MSG_LEN]; // Buffer temporário para ler do socket
 
-    printf("Pronto para receber comandos (digite 'help' para ver as opções).\n");
 
     while (1)
     {
@@ -230,8 +229,7 @@ void start_ndn_node_loop()
                     // Conexão fechada ou erro
                     if (bytes_received == 0)
                     {
-                        printf("Vizinho SD %d (%s:%d) fechou a conexão graciosamente.\n",
-                               node->neighbors[i].socket_sd, node->neighbors[i].ip, node->neighbors[i].tcp_port);
+                        
                     }
                     else
                     {
@@ -273,7 +271,6 @@ void ndn_node_cleanup()
     // Se o nó saiu por 'exit' e ainda está numa rede, deve desregistar.
     if (!node->is_leaving && node->current_net_id != -1)
     { // Só se desregista se não estiver já em processo de saída por 'leave'
-        printf("Nó encerrando (via exit) e ainda registado na rede %d. Tentando desregistar...\n", node->current_net_id);
         send_unreg_message(node, node->current_net_id);
         usleep(100000); // 100 ms
     }

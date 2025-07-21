@@ -16,7 +16,6 @@ void send_reg_message(NDNNode *node, int net_id)
 {
     char message[MAX_UDP_MSG_LEN];
     snprintf(message, sizeof(message), "REG %03d %s %d", net_id, node->ip, node->tcp_port);
-    printf("Enviando REG para o servidor de registo: '%s'\n", message);
 
     ssize_t bytes_sent = sendto(node->udp_reg_sd, message, strlen(message), 0,
                                 (struct sockaddr *)&node->reg_server_addr, sizeof(node->reg_server_addr));
@@ -30,7 +29,6 @@ void send_unreg_message(NDNNode *node, int net_id)
 {
     char message[MAX_UDP_MSG_LEN];
     snprintf(message, sizeof(message), "UNREG %03d %s %d", net_id, node->ip, node->tcp_port);
-    printf("Enviando UNREG para o servidor de registo: '%s'\n", message);
 
     ssize_t bytes_sent = sendto(node->udp_reg_sd, message, strlen(message), 0,
                                 (struct sockaddr *)&node->reg_server_addr, sizeof(node->reg_server_addr));
@@ -44,7 +42,6 @@ void send_nodes_request_message(NDNNode *node, int net_id)
 {
     char message[MAX_UDP_MSG_LEN];
     snprintf(message, sizeof(message), "NODES %03d", net_id);
-    printf("Enviando NODES request para o servidor de registo: '%s'\n", message);
 
     ssize_t bytes_sent = sendto(node->udp_reg_sd, message, strlen(message), 0,
                                 (struct sockaddr *)&node->reg_server_addr, sizeof(node->reg_server_addr));
@@ -56,7 +53,6 @@ void send_nodes_request_message(NDNNode *node, int net_id)
 
 void process_udp_registration_message(NDNNode *node, const char *message)
 {
-    printf("Processando mensagem UDP do servidor de registo: '%s'\n", message);
 
     char cmd[20];
     int net_id;
