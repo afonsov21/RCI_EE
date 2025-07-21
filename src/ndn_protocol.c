@@ -126,8 +126,6 @@ void add_object_to_cache(NDNNode *node, const char *name)
             node->object_cache[i].is_valid = 1;
             node->object_cache[i].last_access_time = time(NULL);
             node->num_cached_objects++; // SÓ INCREMENTA QUANDO ADICIONA NOVO
-            printf("Adicionado '%s' no slot %d (num_cached_objects: %d, is_valid: %d).\n",
-                   name, i, node->num_cached_objects, node->object_cache[i].is_valid); // DEBUG INFO
             return;
         }
     }
@@ -153,8 +151,6 @@ void add_object_to_cache(NDNNode *node, const char *name)
         node->object_cache[oldest_idx].name[MAX_OBJECT_NAME_LEN] = '\0';
         node->object_cache[oldest_idx].last_access_time = time(NULL);
         // num_cached_objects NÃO ALTERA AQUI - é uma SUBSTITUIÇÃO
-        printf("DEBUG: add_object_to_cache: Substituindo slot %d por '%s' (num_cached_objects: %d, is_valid: %d).\n",
-               oldest_idx, name, node->num_cached_objects, node->object_cache[oldest_idx].is_valid); // DEBUG INFO
     }
     else
     {
@@ -237,11 +233,8 @@ void show_local_objects(NDNNode *node)
     }
     else
     {
-        printf("DEBUG: show_local_objects: Iterando sobre a cache. MAX_CACHE_OBJECTS = %d.\n", MAX_CACHE_OBJECTS); // DEBUG INFO
         for (int i = 0; i < MAX_CACHE_OBJECTS; i++)
         {
-            printf("DEBUG: show_local_objects: Slot %d: is_valid = %d, Nome = '%s'.\n",
-                   i, node->object_cache[i].is_valid, node->object_cache[i].is_valid ? node->object_cache[i].name : "N/A"); // DEBUG INFO
             if (node->object_cache[i].is_valid)
             {
                 printf("  - %s (Cache, Last Access: %ld)\n", node->object_cache[i].name, node->object_cache[i].last_access_time);
@@ -415,15 +408,12 @@ void initiate_retrieve(NDNNode *node, const char *object_name)
     // If no neighbors to send to, and only STDIN is in the PIT, then send NOOBJECT back immediately.
     if (!sent_to_any_neighbor)
     {
-        printf("Nó %s:%d não tem vizinhos para reencaminhar INTEREST para '%s'. Enviando NOOBJECT de volta ao usuário.\n", node->ip, node->tcp_port, object_name);
-        printf("Objeto '%s' (ID: %u) NÃO ENCONTRADO para o utilizador local.\n", object_name, interest_id);
         new_interest->is_valid = 0; // Remove from PIT if no interfaces are waiting
         node->num_pending_interests--;
     }
     else
     {
         node->num_pending_interests++;
-        printf("Pesquisa para '%s' iniciada com ID %u.\n", object_name, interest_id);
     }
 }
 

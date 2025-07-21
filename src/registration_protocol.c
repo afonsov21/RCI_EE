@@ -99,12 +99,10 @@ void process_udp_registration_message(NDNNode *node, const char *message)
 
             if (nodes_count == 0)
             {
-                printf("  Lista de nós na rede %03d está vazia. Este nó é o primeiro da rede.\n", net_id);
                 send_reg_message(node, net_id);
             }
             else // nodes_count > 0
             {
-                printf("  Total de %d outros nós na rede %03d. Escolhendo um para conectar...\n", nodes_count, net_id);
 
                 srand(time(NULL)); // Inicializar o gerador de números aleatórios
                 int random_idx = rand() % nodes_count;
@@ -112,7 +110,6 @@ void process_udp_registration_message(NDNNode *node, const char *message)
                 char *target_ip = nodes_ip_list[random_idx];
                 int target_port = nodes_port_list[random_idx];
 
-                printf("  Tentando conectar a %s:%d para se juntar à rede %03d.\n", target_ip, target_port, net_id);
 
                 // Determina se este é o cenário de 2 nós (apenas um outro nó na lista)
                 // O is_two_node_network_scenario é usado aqui para decidir o tipo de vizinho.
@@ -130,7 +127,7 @@ void process_udp_registration_message(NDNNode *node, const char *message)
                         if (just_connected_neighbor)
                         {
                             just_connected_neighbor->type = NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL;
-                            printf("    Nó conectado %s:%d classificado como EXTERNAL_AND_INTERNAL (cenário 2 nós, iniciador).\n", target_ip, target_port);
+                           
                         }
                     }
                     send_reg_message(node, net_id);

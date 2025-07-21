@@ -240,7 +240,6 @@ void start_ndn_node_loop()
                     if (node->is_leaving && (node->neighbors[i].type == NEIGHBOR_TYPE_INTERNAL || node->neighbors[i].type == NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL))
                     {
                         node->internal_neighbors_to_disconnect--;
-                        printf("Nó a sair: Vizinho interno desconectou. Restam %d vizinhos internos.\n", node->internal_neighbors_to_disconnect);
                     }
 
                     remove_neighbor(node, node->neighbors[i].socket_sd); // Remover o vizinho
@@ -255,7 +254,6 @@ void start_ndn_node_loop()
         // Se o nó está a sair e todos os vizinhos internos desconectaram, sair do loop
         if (node->is_leaving && node->internal_neighbors_to_disconnect <= 0)
         {
-            printf("Nó a sair: Todos os vizinhos internos desconectaram. Saindo da aplicação.\n");
             break;
         }
     }
@@ -281,7 +279,6 @@ void ndn_node_cleanup()
         if (node->neighbors[i].is_valid && node->neighbors[i].socket_sd != -1)
         {
             close(node->neighbors[i].socket_sd);
-            printf("Socket de vizinho %s:%d (SD: %d) fechado.\n", node->neighbors[i].ip, node->neighbors[i].tcp_port, node->neighbors[i].socket_sd);
         }
     }
 

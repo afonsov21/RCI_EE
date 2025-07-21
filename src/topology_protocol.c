@@ -46,10 +46,6 @@ int add_neighbor(NDNNode *node, const char *ip, int port, int sd, NeighborType t
             memset(node->neighbors[i].recv_buffer, 0, sizeof(node->neighbors[i].recv_buffer)); // Limpar o buffer
 
             node->num_active_neighbors++;
-            printf("Vizinho adicionado: %s:%d (Tipo: %s, SD: %d). Total: %d\n",
-                   ip, port,
-                   (type == NEIGHBOR_TYPE_EXTERNAL ? "Externo" : (type == NEIGHBOR_TYPE_INTERNAL ? "Interno" : (type == NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL ? "Ext/Int" : "Pendente"))),
-                   sd, node->num_active_neighbors);
             return i; // Retorna o índice do vizinho
         }
     }
@@ -81,7 +77,6 @@ void remove_neighbor(NDNNode *node, int sd)
             return;
         }
     }
-    printf("Vizinho com SD %d não encontrado para remoção.\n", sd);
 }
 
 /**
@@ -157,7 +152,6 @@ int connect_to_node(NDNNode *node, const char *target_ip, int target_tcp_port)
     Neighbor *existing_neighbor = find_neighbor_by_addr(node, target_ip, target_tcp_port);
     if (existing_neighbor && existing_neighbor->is_valid)
     {
-        printf("Já conectado a %s:%d. Reutilizando conexão existente (SD: %d).\n", target_ip, target_tcp_port, existing_neighbor->socket_sd);
         return existing_neighbor->socket_sd;
     }
 
@@ -179,7 +173,6 @@ int connect_to_node(NDNNode *node, const char *target_ip, int target_tcp_port)
         return -1;
     }
 
-    printf("Tentando conectar a %s:%d...\n", target_ip, target_tcp_port);
     if (connect(client_sd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
     {
         if (errno == ECONNREFUSED)
@@ -194,7 +187,6 @@ int connect_to_node(NDNNode *node, const char *target_ip, int target_tcp_port)
         return -1;
     }
 
-    printf("Conexão estabelecida com %s:%d (SD: %d).\n", target_ip, target_tcp_port, client_sd);
     // Adicionar o nó como vizinho EXTERNAL. O tipo será ajustado pelo outro lado.
     int neighbor_idx = add_neighbor(node, target_ip, target_tcp_port, client_sd, NEIGHBOR_TYPE_EXTERNAL);
     if (neighbor_idx != -1)
@@ -375,13 +367,11 @@ void process_complete_tcp_message(NDNNode *node, int client_sd, const char *mess
                         if (get_external_neighbor(node) == NULL && node->num_active_neighbors == 1)
                         {
                             neighbor_conn->type = NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL;
-                            printf("    Nó não tinha vizinho externo. %s:%d (SD: %d) set como EXTERNAL_AND_INTERNAL (cenário 2 nós, aceitador).\n", ip_str, tcp_port, client_sd);
                         }
                         else
                         {
                             // Em todos os outros casos, é um vizinho interno "normal"
                             neighbor_conn->type = NEIGHBOR_TYPE_INTERNAL;
-                            printf("    Nó %s:%d (SD: %d) set como INTERNAL (cenário >2 nós ou já tinha externo).\n", ip_str, tcp_port, client_sd);
                         }
                     }
                     else
@@ -393,7 +383,6 @@ void process_complete_tcp_message(NDNNode *node, int client_sd, const char *mess
                         if (idx != -1 && get_external_neighbor(node) == NULL && node->num_active_neighbors == 1) // Se é o único vizinho e não tem externo
                         {
                             node->neighbors[idx].type = NEIGHBOR_TYPE_EXTERNAL_AND_INTERNAL; // Promove a EXTERNAL_AND_INTERNAL
-                            printf("    Nó não tinha vizinho externo. %s:%d (SD: %d) set como EXTERNAL_AND_INTERNAL.\n", ip_str, tcp_port, client_sd);
                         }
                     }
                 }
@@ -475,10 +464,6 @@ void process_complete_tcp_message(NDNNode *node, int client_sd, const char *mess
                                 {
                                     promoted_neighbor->type = NEIGHBOR_TYPE_EXTERNAL;
                                 }
-                            }
-                            else
-                            {
-                                printf("  Nenhum vizinho interno para promover a externo. Nó agora está isolado ou é o único.\n");
                             }
                         }
                     }
